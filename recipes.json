@@ -5,16 +5,5 @@
     "불,흙": "용암",
     "공기,불": "에너지",
     "공기,용암": "돌"
-  },
-  "images": {
-    "물": "https://gstatic.com",
-    "불": "https://gstatic.com",
-    "흙": "https://gstatic.com",
-    "공기": "https://gstatic.com",
-    "증기": "https://gstatic.com vapor_todo/512.webp",
-    "진흙": "https://gstatic.com9_mud_todo/512.webp",
-    "용암": "https://gstatic.com",
-    "에너지": "https://gstatic.com",
-    "돌": "https://gstatic.com"
   }
 }
