@@ -3,10 +3,11 @@ import streamlit.components.v1 as components
 from streamlit_javascript import st_javascript
 import json
 import os
+import urllib.parse
 
 # 1. 앱 기본 설정
 st.set_page_config(page_title="텍스트 리틀 알케미", page_icon="🧪", layout="wide")
-st.title("🧪 리틀 알케미 (우클릭 드래그 및 합성 버그 완벽 수정)")
+st.title("🧪 리틀 알케미")
 
 # 2. JSON 데이터 로드
 @st.cache_data
@@ -29,6 +30,7 @@ with st.sidebar:
     st.header("🛠️ 관리자 메뉴")
     if st.button("🔄 게임 데이터 전체 초기화", use_container_width=True):
         st.session_state.elements = DEFAULT_ELEMENTS.copy()
+        st.query_params.clear()
         st.toast("게임 데이터가 리셋되었습니다!", icon="♻️")
         st.rerun()
         
@@ -41,15 +43,15 @@ with st.sidebar:
             st.success("모든 원소가 도감에 추가되었습니다!")
             st.rerun()
 
-# 5. [★핵심 수정] 새로고침 없이 URL에서 직접 안전하게 신호 가로채기
+# 5. 안전한 URL 합성 매칭 엔진 (디코딩 버그 수정)
 url = st_javascript("window.location.href")
 if url and "?combine=" in url:
     try:
-        combined_str = url.split("?combine=")[1].split("&")[0]
-        # 디코딩 처리
-        import urllib.parse
-        combined_str = urllib.parse.unquote(combined_str)
+        # URL에서 combine parameter 뒤의 값만 안전하게 분리
+        query_part = url.split("?combine=")[1].split("&")[0]
+        combined_str = urllib.parse.unquote(query_part)
         
+        # 가나다순 정렬 매칭
         parts = sorted(combined_str.split(","))
         recipe_key = ",".join(parts)
         
@@ -62,11 +64,11 @@ if url and "?combine=" in url:
             else:
                 st.toast(f"이미 발견한 물질입니다: {result}", icon="💡")
         else:
-            st.toast("💥 합성 실패! 레시피가 없습니다.", icon="💨")
+            st.toast(f"💥 합성 실패! 레시피가 없습니다. ({recipe_key})", icon="💨")
     except Exception as e:
         pass
     
-    # 처리 완료 후 주소창 강제 초기화 스크립트 실행
+    # 주소창 클리어
     st_javascript("window.history.replaceState({}, document.title, window.location.pathname);")
 
 # 6. 프론트엔드 인터페이스 (HTML/CSS/JS)
@@ -99,7 +101,7 @@ html_code = f"""
         font-size: 13px;
         font-weight: bold;
         color: #1c7ed6;
-        cursor: context-menu; /* 우클릭 커서 가이드 */
+        cursor: move;
         user-select: none;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         z-index: 10;
@@ -118,7 +120,7 @@ html_code = f"""
         <div id="drop-zone" style="flex: 2; border: 3px dashed #ced4da; border-radius: 15px; position: relative; background: #f8f9fa; overflow: hidden;">
             <div id="hint-text" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #adb5bd; font-size: 17px; text-align: center; pointer-events: none; line-height: 1.5;">
                 🎒 인벤토리에서 원소를 끌어다 놓으세요!<br>
-                🖱️ <b>[우클릭 조작법]</b> 배치된 원소는 <b>오른쪽 마우스를 누른 채 이동</b>하고, <b>떼면</b> 그 자리에 놓입니다.
+                🖱️ <b>[우클릭 조작법]</b> 배치된 원소는 <b>오른쪽 마우스를 누른 채 이동</b>하고, <b>떼면</b> 고정됩니다.
             </div>
             <div id="workspace" style="position: absolute; width:100%; height:100%; top:0; left:0;"></div>
         </div>
@@ -146,7 +148,19 @@ html_code = f"""
     let offsetX = 0;
     let offsetY = 0;
 
-    // 1. 인벤토리 목록 구성
+    // 브라우저 세션에서 작업판 데이터 복구
+    const savedState = sessionStorage.getItem('alchemy_workspace');
+    if (savedState) {{
+        const items = JSON.parse(savedState);
+        if (items.length > 0) hintText.style.display = 'none';
+        items.forEach(item => {{
+            if (elements.includes(item.name)) {{
+                createNode(item.name, item.x, item.y, false);
+            }}
+        }});
+    }}
+
+    // 인벤토리 목록 렌더링
     elements.forEach(name => {{
         const div = document.createElement('div');
         div.className = 'element-card';
@@ -156,7 +170,7 @@ html_code = f"""
         inventory.appendChild(div);
     }});
 
-    // 2. 인벤토리에서 작업판으로 드롭 처리
+    // 작업판 드롭
     dropZone.addEventListener('dragover', (e) => e.preventDefault());
     dropZone.addEventListener('drop', (e) => {{
         e.preventDefault();
@@ -167,12 +181,12 @@ html_code = f"""
         const x = e.clientX - rect.left - 30;
         const y = e.clientY - rect.top - 15;
 
-        createNode(draggedName, x, y);
+        createNode(draggedName, x, y, true);
         draggedName = null;
     }});
 
-    // 3. 작업판 원소 노드 생성 및 우클릭 이벤트 설계
-    function createNode(name, x, y) {{
+    // 노드 생성 및 우클릭 바인딩
+    function createNode(name, x, y, triggerCheck) {{
         const node = document.createElement('div');
         node.className = 'placed-node';
         node.innerText = name;
@@ -182,8 +196,8 @@ html_code = f"""
 
         const obj = {{ name: name, x: x, y: y, dom: node }};
         placedElements.push(obj);
+        saveCurrentWorkspace();
 
-        // [요청 반영] 마우스 오른쪽 클릭을 '누를 때' 드래그 시작
         node.addEventListener('mousedown', (e) => {{
             if (e.button === 2) {{ 
                 activeNode = obj;
@@ -195,13 +209,13 @@ html_code = f"""
             }}
         }});
         
-        // 브라우저 메뉴창 뜨는 기본 기능 완전 차단
         node.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        checkCollision(obj);
+        if (triggerCheck) {{
+            checkCollision(obj);
+        }}
     }}
 
-    // 4. 마우스 이동시 카드 따라오게 처리
     window.addEventListener('mousemove', (e) => {{
         if (!activeNode) return;
         
@@ -209,7 +223,6 @@ html_code = f"""
         let x = e.clientX - rect.left - offsetX;
         let y = e.clientY - rect.top - offsetY;
 
-        // 경계 제한
         x = Math.max(0, Math.min(x, rect.width - activeNode.dom.offsetWidth));
         y = Math.max(0, Math.min(y, rect.height - activeNode.dom.offsetHeight));
 
@@ -219,18 +232,22 @@ html_code = f"""
         activeNode.dom.style.top = y + 'px';
     }});
 
-    // [요청 반영] 마우스 오른쪽 버튼을 '뗄 때' 드래그가 끝나고 고정됨
     window.addEventListener('mouseup', (e) => {{
         if (e.button === 2 && activeNode) {{
+            saveCurrentWorkspace();
             checkCollision(activeNode);
             activeNode = null;
         }}
     }});
     
-    // 작업판 내부 전체 우클릭 방지
     dropZone.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // 5. 합성 매커니즘 검사 (겹침 판정 최적화)
+    function saveCurrentWorkspace() {{
+        const data = placedElements.map(el => ({{ name: el.name, x: el.x, y: el.y }}));
+        sessionStorage.setItem('alchemy_workspace', JSON.stringify(data));
+    }}
+
+    // 두 원소가 겹쳤는지 판정 (판정 범위 범용성 확보를 위해 85px로 확장)
     function checkCollision(targetObj) {{
         if (placedElements.length < 2) return;
 
@@ -238,23 +255,20 @@ html_code = f"""
             const other = placedElements[i];
             if (other === targetObj) continue;
 
-            // 카드 사이의 실제 거리 계산
             const dist = Math.hypot(targetObj.x - other.x, targetObj.y - other.y);
             
-            // 두 카드가 살짝이라도 포개지면 (거리 80px 내외) 안전하게 합성 주소 호출
-            if (dist < 80) {{
+            if (dist < 85) {{
                 const combineQuery = other.name + ',' + targetObj.name;
-                // 우회 통신 방식으로 부모 창 안전하게 업데이트
                 window.top.location.search = '?combine=' + encodeURIComponent(combineQuery);
                 return;
             }}
         }}
     }}
 
-    // 6. 작업판 청소
     clearBtn.addEventListener('click', () => {{
         workspace.innerHTML = '';
         placedElements = [];
+        sessionStorage.removeItem('alchemy_workspace');
         hintText.style.display = 'block';
     }});
 </script>
