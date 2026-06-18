@@ -237,7 +237,7 @@ html_code = f"""
                 (releasedObj.y + releasedObj.dom.offsetHeight/2) - (other.y + other.dom.offsetHeight/2)
             );
 
-            if (dist < 65) {{ // 겹침 기준
+            if (dist < 100) {{ // 겹침 기준
                 tryCombine(releasedObj, other);
                 return;
             }}
